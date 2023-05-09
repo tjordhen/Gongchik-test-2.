@@ -1,0 +1,71 @@
+name: vulgatizer
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  vulgatizer:
+    if: "contains(github.event.head_commit.message, 'Create common spell')"
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.8"
+        
+    - name: Install dependencies
+      run: |
+        pip install -U pip
+        pip install python-dateutil
+        pip install git+https://github.com/OpenPecha/CommonSpell.git
+    - name: Create vulgate text
+      run: |
+        from pathlib import Path
+        from CommonSpell.encoder import Encoder
+        from CommonSpell.bo.tokenizer_bo import TibetanTokenizer, TibetanNormalizer
+        from CommonSpell.aligners.fdmp import FDMPaligner
+        from CommonSpell.weighers.matrix_weigher import TokenMatrixWeigher
+        from CommonSpell.weighers.token_weigher_count import TokenCountWeigher
+        from CommonSpell.serializers.plain_text import PlainTextSerializer
+        from CommonSpell.commonspeller import CommonSpeller
+
+
+
+        def run_common_speller(version_dir):
+            try:
+                version_paths = list(version_dir.iterdir())
+            except:
+                print("witness directory doesn't exist")
+                return None
+            version_paths.sort()
+            common_speller = CommonSpeller(FDMPaligner(), TibetanTokenizer(Encoder(), TibetanNormalizer()), version_paths=[])
+
+            for version_path in version_paths:
+                if version_path.suffix == '.txt':
+                    common_speller.add_versions(version_path)
+            token_matrix = common_speller.get_common_spell_matrix()
+            tokenMatrixWeigher = TokenMatrixWeigher()
+            weighers = [TokenCountWeigher()]
+            common_spell_dir = Path('./common_spell')
+            common_spell_dir.mkdir(exist_ok=True)
+
+            serializer = PlainTextSerializer(token_matrix, tokenMatrixWeigher, weighers, output_dir=common_spell_dir)
+            weighted_matrix = serializer.get_weighted_matix()
+            common_spell_text = serializer.serialize_matrix(weighted_matrix)
+            serializer.save_serialized_matrix(common_spell_text)
+
+        version_dir = Path('./versions')
+        common_spell_text = run_common_speller(version_dir)
+      shell: python
+
+    - name: Git Auto Commit
+      uses: stefanzweifel/git-auto-commit-action@v4.16.0
+      with:
+        commit_message: Added or updated review dir
